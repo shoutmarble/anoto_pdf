@@ -39,6 +39,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .help("Extract 6x6 section at position: row col")
                 .num_args(2)
                 .value_names(["row", "col"]),
+        )
+        .arg(
+            Arg::new("file")
+                .short('f')
+                .long("file")
+                .help("File to load matrix from (txt or json)")
+                .num_args(1)
+                .value_names(["filename"]),
         );
 
     let matches = app.get_matches();
@@ -52,6 +60,27 @@ fn main() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
+
+    // Get file if specified
+    let file = if let Some(values) = matches.get_many::<String>("file") {
+        let v: Vec<String> = values.map(|s| s.to_string()).collect();
+        Some(v.first().unwrap().clone())
+    } else {
+        None
+    };
+
+    // If position and file are both specified, load matrix and extract 6x6
+    if let (Some(pos), Some(filename)) = (position, file) {
+        let bitmatrix = if filename.ends_with(".json") {
+            anoto_dots::load_matrix_from_json(&filename)?
+        } else if filename.ends_with(".txt") {
+            anoto_dots::load_matrix_from_txt(&filename)?
+        } else {
+            return Err("Unsupported file format. Use .json or .txt".into());
+        };
+        anoto_dots::extract_6x6_section(&bitmatrix, pos)?;
+        return Ok(());
+    }
 
     if let Some(values) = matches.get_many::<String>("generate") {
         let v: Vec<String> = values.map(|s| s.to_string()).collect();

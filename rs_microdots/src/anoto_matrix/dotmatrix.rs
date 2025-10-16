@@ -32,6 +32,7 @@ pub struct AnotoCodec {
 }
 
 impl AnotoCodec {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         mns: Vec<i8>,
         mns_length: usize,
@@ -58,7 +59,7 @@ impl AnotoCodec {
         }
     }
 
-    fn reconstruct(&self, coeffs: &Vec<i8>) -> i32 {
+    fn reconstruct(&self, coeffs: &[i8]) -> i32 {
         coeffs.iter().enumerate().map(|(i, &c)| c as i32 * self.bases[i]).sum()
     }
 
@@ -79,7 +80,7 @@ impl AnotoCodec {
     fn roll_mns(&self, roll: i32) -> Vec<i8> {
         let shift = roll;
         let len = self.mns_length;
-        let abs_shift = shift.abs() as usize % len;
+        let abs_shift = shift.unsigned_abs() as usize % len;
         let mut s = self.mns.clone();
         if shift >= 0 {
             s.rotate_left((len - abs_shift) % len);
@@ -128,6 +129,7 @@ impl AnotoCodec {
         m.slice(s![0..h, 0..w, ..]).to_owned()
     }
 
+    #[allow(dead_code)]
     fn encode_position(&self, x: i32, y: i32) -> i8 {
         // Calculate the MNS sequence for the position
         let mns_value = self.calculate_mns(x, y);
@@ -139,6 +141,7 @@ impl AnotoCodec {
         self.combine_sequences(mns_value, a_values)
     }
 
+    #[allow(dead_code)]
     fn calculate_mns(&self, x: i32, y: i32) -> Vec<i8> {
         let mut mns_seq = Vec::new();
         let mut current_x = x;
@@ -154,6 +157,7 @@ impl AnotoCodec {
         mns_seq
     }
 
+    #[allow(dead_code)]
     fn calculate_a_sequences(&self, x: i32, y: i32) -> Vec<Vec<i8>> {
         let mut a_seqs = Vec::new();
 
@@ -176,6 +180,7 @@ impl AnotoCodec {
         a_seqs
     }
 
+    #[allow(dead_code)]
     fn combine_sequences(&self, mns: Vec<i8>, _a_seqs: Vec<Vec<i8>>) -> i8 {
         // For simplicity, just return the first MNS value
         // In a real implementation, this would combine all sequences
@@ -282,7 +287,7 @@ pub fn anoto_6x6_a4_fixed() -> AnotoCodec {
         2, 0, 1, 2, 0, 1, 0, 1, 1, 0, 2, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1
     ];
 
-    let sns = vec![a1.clone(), a2.clone(), a3.clone(), a4_alt.clone()];
+    let sns = [a1.clone(), a2.clone(), a3.clone(), a4_alt.clone()];
     let sns_lengths: Vec<usize> = sns.iter().map(|s| s.len()).collect();
     let sns_order = 5;
     let sns_cyclic: Vec<Vec<i8>> = sns.iter().map(|s| make_cyclic(s, sns_order)).collect();
@@ -308,8 +313,8 @@ pub fn anoto_6x6_a4_fixed() -> AnotoCodec {
     )
 }
 
-fn make_cyclic(seq: &Vec<i8>, order: usize) -> Vec<i8> {
-    let mut cyclic = seq.clone();
+fn make_cyclic(seq: &[i8], order: usize) -> Vec<i8> {
+    let mut cyclic = seq.to_vec();
     cyclic.extend_from_slice(&seq[0..order - 1]);
     cyclic
 }
@@ -333,22 +338,78 @@ pub fn save_generated_matrix(bitmatrix: &Array3<i32>, height: usize, width: usiz
     std::fs::create_dir_all("output")?;
 
     // Save as JSON
-    crate::persist_json::save_as_json(&bitmatrix, &base_filename)?;
+    crate::persist_json::save_as_json(bitmatrix, &base_filename)?;
 
     // Save as TXT
-    crate::persist_json::save_as_txt(&bitmatrix, &base_filename)?;
+    crate::persist_json::save_as_txt(bitmatrix, &base_filename)?;
 
     // Generate PNG
     crate::make_plots::draw_dots(&bitmatrix.mapv(|x| x as i8), 1.0, &base_filename)?;
 
     // Generate PDF
-    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(&bitmatrix, &format!("{}.pdf", base_filename))?;
+    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(bitmatrix, &format!("{}.pdf", base_filename))?;
 
     Ok(())
 }
 
 pub fn load_matrix_from_json(json_path: &str) -> std::result::Result<Array3<i32>, Box<dyn std::error::Error>> {
     let bitmatrix = crate::persist_json::load_array3_from_json(json_path)?;
+    Ok(bitmatrix)
+}
+
+pub fn load_matrix_from_txt(txt_path: &str) -> std::result::Result<Array3<i32>, Box<dyn std::error::Error>> {
+    use std::fs::File;
+    use std::io::Read;
+
+    let mut file = File::open(txt_path)?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+
+    let mut rows = Vec::new();
+    for line in content.lines() {
+        let mut row = Vec::new();
+        let mut i = 0;
+        let chars: Vec<char> = line.chars().collect();
+        while i < chars.len() {
+            if chars[i] == '[' {
+                // Find the closing ]
+                let mut j = i + 1;
+                while j < chars.len() && chars[j] != ']' {
+                    j += 1;
+                }
+                if j < chars.len() {
+                    let inner: String = chars[i+1..j].iter().collect();
+                    let nums: Vec<i32> = inner.split_whitespace()
+                        .filter_map(|s| s.parse().ok())
+                        .collect();
+                    if nums.len() == 2 {
+                        row.push([nums[0], nums[1]]);
+                    }
+                }
+                i = j + 1;
+            } else {
+                i += 1;
+            }
+        }
+        if !row.is_empty() {
+            rows.push(row);
+        }
+    }
+
+    if rows.is_empty() {
+        return Err("No data found in txt file".into());
+    }
+
+    let height = rows.len();
+    let width = rows[0].len();
+    let mut bitmatrix = Array3::<i32>::zeros((height, width, 2));
+    for (i, row) in rows.into_iter().enumerate() {
+        for (j, pair) in row.into_iter().enumerate() {
+            bitmatrix[[i, j, 0]] = pair[0];
+            bitmatrix[[i, j, 1]] = pair[1];
+        }
+    }
+
     Ok(bitmatrix)
 }
 
@@ -375,13 +436,13 @@ pub fn save_matrix_from_json(bitmatrix: &Array3<i32>, json_path: &str) -> std::r
     let base_filename = format!("J__{}__{}__{}__{}", height, width, sect_u, sect_v);
 
     // Save as TXT
-    crate::persist_json::save_as_txt(&bitmatrix, &base_filename)?;
+    crate::persist_json::save_as_txt(bitmatrix, &base_filename)?;
 
     // Generate PNG
     crate::make_plots::draw_dots(&bitmatrix.mapv(|x| x as i8), 1.0, &base_filename)?;
 
     // Generate PDF
-    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(&bitmatrix, &format!("{}.pdf", base_filename))?;
+    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(bitmatrix, &format!("{}.pdf", base_filename))?;
 
     Ok(())
 }

@@ -7,7 +7,7 @@ pub mod anoto_matrix;
 pub mod pdf_dotpaper;
 pub mod decode_utils;
 
-pub use anoto_matrix::{gen_matrix, gen_matrix_from_json, generate_matrix_only, save_generated_matrix, load_matrix_from_json, save_matrix_from_json, extract_6x6_section};
+pub use anoto_matrix::{gen_matrix, gen_matrix_from_json, generate_matrix_only, save_generated_matrix, load_matrix_from_json, load_matrix_from_txt, save_matrix_from_json, extract_6x6_section};
 pub use decode_utils::decode_position;
 
 pub fn anoto_6x6_a4_fixed() -> AnotoCodec {

@@ -34,6 +34,7 @@ pub fn gen_anoto_pdf_from_json(json_path: &str) -> std::result::Result<(), Box<d
     gen_pdf_from_matrix_data(&bitmatrix, &filename)
 }
 
+#[allow(dead_code)]
 fn convert_bitmatrix(bitmatrix: Array3<i32>) -> Vec<Vec<i32>> {
     let mut data = Vec::new();
     for row in bitmatrix.outer_iter() {
