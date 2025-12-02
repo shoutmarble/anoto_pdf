@@ -96,10 +96,13 @@ pub fn find_position(bitmatrix: &ndarray::Array3<i8>, section: &ndarray::Array3<
  * Given a 6x6 section, decode the position using the anoto codec
  * return (row, col) as (i64, i64)
  * 
- *     https://github.com/cheind/py-microdots/blob/develop/examples/hello_anoto.py
+ * Reference: https://github.com/cheind/py-microdots/blob/develop/examples/hello_anoto.py
+ * 
+ * ```text
  *     pos = codec.decode_position(S)
  *     sec = codec.decode_section(S, pos=pos)
  *     rot = codec.decode_rotation(R)
+ * ```
  * 
  * If position cannot be decoded, return None
  * If position is decoded, return Some((row, col))
@@ -110,7 +113,7 @@ pub fn find_position(bitmatrix: &ndarray::Array3<i8>, section: &ndarray::Array3<
  *      POS (7, 3)
  */
 pub fn decode_position(section: &ndarray::Array3<i8>) -> Option<(i64, i64)> {
-    let codec = crate::anoto_6x6_a4_fixed();
+    let codec = crate::codec::anoto_6x6_a4_fixed();
     match codec.decode_position(section) {
         Ok((x, y)) => Some((x as i64, y as i64)),
         Err(_) => None,
