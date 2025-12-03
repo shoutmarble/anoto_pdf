@@ -29,6 +29,7 @@ Cargo.lock
 
 # Generated files
 *.png
+!src/assets/*.png
 anoto_dots.png
 anoto_dots_Y.png
 py-microdots/examples/output/
