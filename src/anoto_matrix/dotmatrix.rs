@@ -347,7 +347,7 @@ pub fn save_generated_matrix(bitmatrix: &Array3<i32>, height: usize, width: usiz
     crate::make_plots::draw_dots(&bitmatrix.mapv(|x| x as i8), 1.0, &base_filename)?;
 
     // Generate PDF
-    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(bitmatrix, &format!("{}.pdf", base_filename))?;
+    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(bitmatrix, &format!("{}.pdf", base_filename), &crate::pdf_dotpaper::gen_pdf::PdfConfig::default())?;
 
     Ok(())
 }
@@ -442,7 +442,7 @@ pub fn save_matrix_from_json(bitmatrix: &Array3<i32>, json_path: &str) -> std::r
     crate::make_plots::draw_dots(&bitmatrix.mapv(|x| x as i8), 1.0, &base_filename)?;
 
     // Generate PDF
-    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(bitmatrix, &format!("{}.pdf", base_filename))?;
+    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(bitmatrix, &format!("{}.pdf", base_filename), &crate::pdf_dotpaper::gen_pdf::PdfConfig::default())?;
 
     Ok(())
 }
@@ -520,7 +520,7 @@ pub fn gen_matrix_from_json(json_path: &str) -> std::result::Result<(), Box<dyn 
     crate::make_plots::draw_dots(&bitmatrix.mapv(|x| x as i8), 1.0, &base_filename)?;
 
     // Generate PDF
-    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(&bitmatrix, &format!("{}.pdf", base_filename))?;
+    crate::pdf_dotpaper::gen_pdf::gen_pdf_from_matrix_data(&bitmatrix, &format!("{}.pdf", base_filename), &crate::pdf_dotpaper::gen_pdf::PdfConfig::default())?;
 
     Ok(())
 }
