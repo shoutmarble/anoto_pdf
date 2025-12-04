@@ -1,7 +1,7 @@
 [package]
 name = "anoto_pdf"
 authors = ["Terry McConnell <terry@example.com>"]
-version = "0.4.0"
+version = "0.4.5"
 edition = "2024"
 
 [dependencies]
@@ -16,3 +16,4 @@ iced = { version = "0.13", features = ["image", "canvas", "svg"] }
 iced_aw = { version = "0.12", features = ["color_picker", "number_input", "card", "spinner"] }
 axum = "0.8.7"
 tokio = { version = "1.48.0", features = ["full"] }
+image = "0.25.9"

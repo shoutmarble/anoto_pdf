@@ -4,7 +4,7 @@ use iced::{Element, Length, Task, ContentFit, Border, Color, Shadow};
 use iced_aw::spinner::Spinner;
 use anoto_pdf::pdf_dotpaper::gen_pdf::{PdfConfig, gen_pdf_from_matrix_data};
 use anoto_pdf::anoto_matrix::generate_matrix_only;
-use anoto_pdf::make_plots::draw_preview_image;
+use anoto_pdf::make_plots::{draw_preview_image, draw_dot_on_file};
 use anoto_pdf::controls::{anoto_control, page_layout_control, section_control};
 use tokio::sync::oneshot;
 
@@ -46,6 +46,10 @@ struct Gui {
     lookup_x: String,
     lookup_y: String,
     lookup_result: text_editor::Content,
+    draw_x: String,
+    draw_y: String,
+    draw_status: String,
+    current_png_path: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +65,7 @@ enum Message {
     SectUChanged(i32),
     SectVChanged(i32),
     GeneratePressed,
-    GenerationFinished(Result<image::Handle, String>),
+    GenerationFinished(Result<(image::Handle, String), String>),
     ToggleUpPicker(bool),
     ToggleDownPicker(bool),
     ToggleLeftPicker(bool),
@@ -81,6 +85,10 @@ enum Message {
     LookupYChanged(String),
     PerformLookup,
     LookupResultChanged(text_editor::Action),
+    DrawXChanged(String),
+    DrawYChanged(String),
+    DrawDotPressed,
+    DrawDotFinished(Result<image::Handle, String>),
 }
 
 impl Default for Gui {
@@ -109,6 +117,10 @@ impl Default for Gui {
             lookup_x: "0".to_string(),
             lookup_y: "0".to_string(),
             lookup_result: text_editor::Content::new(),
+            draw_x: "0".to_string(),
+            draw_y: "0".to_string(),
+            draw_status: "Ready".to_string(),
+            current_png_path: None,
         }
     }
 }
@@ -266,11 +278,58 @@ impl Gui {
             Message::GenerationFinished(result) => {
                 self.is_generating = false;
                 match result {
-                    Ok(handle) => {
+                    Ok((handle, path)) => {
                         self.status_message = "PDF Generated Successfully!".to_string();
                         self.generated_image_handle = Some(handle);
+                        self.current_png_path = Some(path);
                     }
                     Err(e) => self.status_message = format!("Error: {}", e),
+                }
+            }
+            Message::DrawXChanged(val) => {
+                if val.chars().all(|c| c.is_numeric() || c == '.') {
+                    self.draw_x = val;
+                }
+            }
+            Message::DrawYChanged(val) => {
+                if val.chars().all(|c| c.is_numeric() || c == '.') {
+                    self.draw_y = val;
+                }
+            }
+            Message::DrawDotPressed => {
+                if let Some(path) = &self.current_png_path {
+                    let x = self.draw_x.parse::<f64>().unwrap_or(0.0);
+                    let y = self.draw_y.parse::<f64>().unwrap_or(0.0);
+                    let config = self.config.clone();
+                    let matrix_width = self.width;
+                    let matrix_height = self.height;
+                    let path_clone = path.clone();
+                    
+                    self.draw_status = "Drawing dot...".to_string();
+
+                    return Task::perform(async move {
+                        match draw_dot_on_file(&path_clone, x, y, matrix_height, matrix_width, &config) {
+                            Ok(_) => {
+                                // Reload the image
+                                 match std::fs::read(&path_clone) {
+                                    Ok(bytes) => Ok(image::Handle::from_bytes(bytes)),
+                                    Err(e) => Err(e.to_string())
+                                 }
+                            },
+                            Err(e) => Err(e.to_string())
+                        }
+                    }, Message::DrawDotFinished);
+                } else {
+                    self.draw_status = "Generate PDF first!".to_string();
+                }
+            }
+            Message::DrawDotFinished(result) => {
+                match result {
+                    Ok(handle) => {
+                        self.draw_status = "Dot drawn!".to_string();
+                        self.generated_image_handle = Some(handle);
+                    }
+                    Err(e) => self.draw_status = format!("Error: {}", e),
                 }
             }
         }
@@ -517,9 +576,42 @@ impl Gui {
             vertical_space().height(10),
             text_editor(&self.lookup_result)
                 .on_action(Message::LookupResultChanged)
-                .height(Length::Fixed(150.0))
+                .height(Length::Fixed(200.0))
                 .font(iced::font::Font::MONOSPACE)
                 .wrapping(iced::widget::text::Wrapping::None),
+        ]
+        .spacing(10))
+        .padding(20)
+        .style(|_theme| container::Style {
+            border: Border {
+                color: Color::from_rgb(0.5, 0.5, 0.5),
+                width: 2.0,
+                radius: 5.0.into(),
+            },
+            ..container::Style::default()
+        })
+        .width(Length::Fixed(200.0));
+
+        let draw_dot_controls = container(column![
+            text("Draw Dot").size(20),
+            vertical_space().height(10),
+            row![
+                column![
+                    text("Position X:"),
+                    text_input("0", &self.draw_x).on_input(Message::DrawXChanged).padding(5).width(Length::Fill)
+                ].spacing(5).width(Length::Fill),
+                column![
+                    text("Position Y:"),
+                    text_input("0", &self.draw_y).on_input(Message::DrawYChanged).padding(5).width(Length::Fill)
+                ].spacing(5).width(Length::Fill)
+            ].spacing(10),
+            vertical_space().height(10),
+            button("Draw Dot")
+                .on_press(Message::DrawDotPressed)
+                .padding(10)
+                .width(Length::Fill),
+            vertical_space().height(10),
+            text(&self.draw_status).size(14),
         ]
         .spacing(10))
         .padding(20)
@@ -538,8 +630,11 @@ impl Gui {
             vertical_space().height(20),
             decoder_controls,
             vertical_space().height(20),
-            lookup_controls
-        ];
+            lookup_controls,
+            vertical_space().height(20),
+            draw_dot_controls
+        ]
+        .padding(20);
 
         row![
             image_preview,
@@ -820,14 +915,14 @@ const INDEX_HTML: &str = r#"
 </html>
 "#;
 
-async fn generate_and_save(params: GenerationParams) -> Result<image::Handle, String> {
+async fn generate_and_save(params: GenerationParams) -> Result<(image::Handle, String), String> {
     // This is a blocking operation, but we run it in an async block.
     // In a real async runtime, we should use spawn_blocking.
     // Since we don't have easy access to spawn_blocking without adding tokio dependency explicitly,
     // we will just run it here. It might block the UI thread if the executor is single threaded.
     // However, for the purpose of this task, we are using Task::perform.
     
-    let result = (|| -> Result<image::Handle, Box<dyn std::error::Error>> {
+    let result = (|| -> Result<(image::Handle, String), Box<dyn std::error::Error>> {
         let bitmatrix = generate_matrix_only(params.height, params.width, params.sect_u, params.sect_v)?;
         let base_filename = format!("GUI_G__{}__{}__{}__{}", params.height, params.width, params.sect_u, params.sect_v);
         
@@ -844,7 +939,7 @@ async fn generate_and_save(params: GenerationParams) -> Result<image::Handle, St
 
         // Load image bytes to force refresh
         let bytes = std::fs::read(&png_path)?;
-        Ok(image::Handle::from_bytes(bytes))
+        Ok((image::Handle::from_bytes(bytes), png_path))
     })();
 
     result.map_err(|e| e.to_string())
