@@ -1,6 +1,7 @@
-use iced::widget::{button, column, container, row, scrollable, slider, text, text_editor, text_input, vertical_space};
-use iced::widget::image::{self, Image};
-use iced::{Element, Length, Task, ContentFit, Border, Color, Shadow};
+use iced::widget::{button, column, container, row, scrollable, slider, text, text_editor, text_input, vertical_space, canvas};
+use iced::widget::image;
+use iced::{Element, Length, Task, Border, Color, Shadow, Point, Vector, Rectangle, Renderer, Theme, mouse};
+use iced::event;
 use iced_aw::spinner::Spinner;
 use anoto_pdf::pdf_dotpaper::gen_pdf::{PdfConfig, gen_pdf_from_matrix_data};
 use anoto_pdf::anoto_matrix::generate_matrix_only;
@@ -53,6 +54,10 @@ struct Gui {
     draw_y: String,
     draw_status: String,
     current_png_path: Option<String>,
+    preview_zoom: f32,
+    image_width: u32,
+    image_height: u32,
+    scrollable_id: scrollable::Id,
 }
 
 #[derive(Debug, Clone)]
@@ -68,7 +73,7 @@ enum Message {
     SectUChanged(i32),
     SectVChanged(i32),
     GeneratePressed,
-    GenerationFinished(Result<(image::Handle, String), String>),
+    GenerationFinished(Result<(image::Handle, String, u32, u32), String>),
     ToggleUpPicker(bool),
     ToggleDownPicker(bool),
     ToggleLeftPicker(bool),
@@ -94,6 +99,8 @@ enum Message {
     DrawYChanged(String),
     DrawDotPressed,
     DrawDotFinished(Result<image::Handle, String>),
+    PreviewZoomed(f32, Point),
+    PreviewPanned(Vector),
 }
 
 impl Default for Gui {
@@ -128,6 +135,10 @@ impl Default for Gui {
             draw_y: "0".to_string(),
             draw_status: "Ready".to_string(),
             current_png_path: None,
+            preview_zoom: 1.0,
+            image_width: 0,
+            image_height: 0,
+            scrollable_id: scrollable::Id::unique(),
         }
     }
 }
@@ -139,6 +150,99 @@ struct GenerationParams {
     sect_u: i32,
     sect_v: i32,
     config: PdfConfig,
+}
+
+struct ImageViewerState {
+    is_dragging: bool,
+    last_cursor_pos: Option<Point>,
+}
+
+impl Default for ImageViewerState {
+    fn default() -> Self {
+        Self {
+            is_dragging: false,
+            last_cursor_pos: None,
+        }
+    }
+}
+
+struct ImageViewer<'a> {
+    handle: &'a image::Handle,
+}
+
+impl<'a> canvas::Program<Message> for ImageViewer<'a> {
+    type State = ImageViewerState;
+
+    fn update(
+        &self,
+        state: &mut Self::State,
+        event: canvas::Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> (event::Status, Option<Message>) {
+        match event {
+            canvas::Event::Mouse(mouse::Event::WheelScrolled { delta }) => {
+                let delta_y = match delta {
+                    mouse::ScrollDelta::Lines { y, .. } => y,
+                    mouse::ScrollDelta::Pixels { y, .. } => y / 20.0,
+                };
+                if let Some(p) = cursor.position_in(bounds) {
+                    (event::Status::Captured, Some(Message::PreviewZoomed(delta_y, p)))
+                } else {
+                    (event::Status::Ignored, None)
+                }
+            }
+            canvas::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
+                if let Some(_) = cursor.position_in(bounds) {
+                    state.is_dragging = true;
+                    state.last_cursor_pos = cursor.position();
+                    (event::Status::Captured, None)
+                } else {
+                    (event::Status::Ignored, None)
+                }
+            }
+            canvas::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+                if state.is_dragging {
+                    state.is_dragging = false;
+                    state.last_cursor_pos = None;
+                    (event::Status::Captured, None)
+                } else {
+                    (event::Status::Ignored, None)
+                }
+            }
+            canvas::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+                if state.is_dragging {
+                    if let Some(current_pos) = cursor.position() {
+                        if let Some(last_pos) = state.last_cursor_pos {
+                            let delta = current_pos - last_pos;
+                            state.last_cursor_pos = Some(current_pos);
+                            return (event::Status::Captured, Some(Message::PreviewPanned(delta)));
+                        }
+                    }
+                }
+                (event::Status::Ignored, None)
+            }
+            _ => (event::Status::Ignored, None),
+        }
+    }
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &Renderer,
+        _theme: &Theme,
+        bounds: Rectangle,
+        _cursor: mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        
+        frame.draw_image(
+            bounds,
+            canvas::Image::new(self.handle.clone())
+        );
+        
+        vec![frame.into_geometry()]
+    }
 }
 
 impl Gui {
@@ -340,10 +444,13 @@ impl Gui {
             Message::GenerationFinished(result) => {
                 self.is_generating = false;
                 match result {
-                    Ok((handle, path)) => {
+                    Ok((handle, path, w, h)) => {
                         self.status_message = "PDF Generated Successfully!".to_string();
                         self.generated_image_handle = Some(handle);
                         self.current_png_path = Some(path);
+                        self.image_width = w;
+                        self.image_height = h;
+                        self.preview_zoom = 1.0;
                     }
                     Err(e) => self.status_message = format!("Error: {}", e),
                 }
@@ -393,6 +500,35 @@ impl Gui {
                     }
                     Err(e) => self.draw_status = format!("Error: {}", e),
                 }
+            }
+            Message::PreviewZoomed(delta, cursor) => {
+                let old_zoom = self.preview_zoom;
+                let new_zoom = (old_zoom * (1.0 + delta * 0.1)).max(0.1).min(20.0);
+                
+                // cursor is relative to the canvas (which is scaled)
+                // We want to scroll such that the point under cursor remains under cursor.
+                // p_old = cursor
+                // p_unscaled = p_old / old_zoom
+                // p_new = p_unscaled * new_zoom
+                // delta_scroll = p_new - p_old
+                
+                let p_old = Vector::new(cursor.x, cursor.y);
+                let p_unscaled = p_old * (1.0 / old_zoom);
+                let p_new = p_unscaled * new_zoom;
+                let delta_scroll = p_new - p_old;
+                
+                self.preview_zoom = new_zoom;
+                
+                return scrollable::scroll_by(
+                    self.scrollable_id.clone(),
+                    scrollable::AbsoluteOffset { x: delta_scroll.x, y: delta_scroll.y }
+                );
+            }
+            Message::PreviewPanned(delta) => {
+                return scrollable::scroll_by(
+                    self.scrollable_id.clone(),
+                    scrollable::AbsoluteOffset { x: -delta.x, y: -delta.y }
+                );
             }
         }
         Task::none()
@@ -515,11 +651,23 @@ impl Gui {
         let image_preview = if let Some(handle) = &self.generated_image_handle {
              container(
                 container(
-                    Image::new(handle.clone())
-                        .content_fit(ContentFit::Contain)
-                        .width(Length::Fill)
-                        .height(Length::Fill)
+                    scrollable(
+                        canvas::Canvas::new(ImageViewer {
+                            handle,
+                        })
+                        .width(Length::Fixed(self.image_width as f32 * self.preview_zoom))
+                        .height(Length::Fixed(self.image_height as f32 * self.preview_zoom))
+                    )
+                    .id(self.scrollable_id.clone())
+                    .direction(scrollable::Direction::Both {
+                        vertical: scrollable::Scrollbar::default(),
+                        horizontal: scrollable::Scrollbar::default(),
+                    })
+                    .width(Length::Fill)
+                    .height(Length::Fill)
                 )
+                .width(Length::Fill)
+                .height(Length::Fill)
                 .padding(5)
                 .style(|_theme| container::Style {
                     border: Border {
@@ -1028,14 +1176,14 @@ const INDEX_HTML: &str = r#"
 </html>
 "#;
 
-async fn generate_and_save(params: GenerationParams) -> Result<(image::Handle, String), String> {
+async fn generate_and_save(params: GenerationParams) -> Result<(image::Handle, String, u32, u32), String> {
     // This is a blocking operation, but we run it in an async block.
     // In a real async runtime, we should use spawn_blocking.
     // Since we don't have easy access to spawn_blocking without adding tokio dependency explicitly,
     // we will just run it here. It might block the UI thread if the executor is single threaded.
     // However, for the purpose of this task, we are using Task::perform.
     
-    let result = (|| -> Result<(image::Handle, String), Box<dyn std::error::Error>> {
+    let result = (|| -> Result<(image::Handle, String, u32, u32), Box<dyn std::error::Error>> {
         let bitmatrix = generate_matrix_only(params.height, params.width, params.sect_u, params.sect_v)?;
         let base_filename = format!("GUI_G__{}__{}__{}__{}", params.height, params.width, params.sect_u, params.sect_v);
         
@@ -1052,7 +1200,8 @@ async fn generate_and_save(params: GenerationParams) -> Result<(image::Handle, S
 
         // Load image bytes to force refresh
         let bytes = std::fs::read(&png_path)?;
-        Ok((image::Handle::from_bytes(bytes), png_path))
+        let img = ::image::load_from_memory(&bytes)?;
+        Ok((image::Handle::from_bytes(bytes), png_path, img.width(), img.height()))
     })();
 
     result.map_err(|e| e.to_string())
