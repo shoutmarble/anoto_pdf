@@ -3,7 +3,7 @@
 ### rust version of [cheind/py-microdots](https://github.com/cheind/py-microdots)
 
 ---
-![anoto pdf gui](https://raw.githubusercontent.com/shoutmarble/anoto_pdf/refs/heads/main/src/assets/anoto_pdf.png)
+![anoto pdf gui](src/assets/anoto_pdf.png)
 
 > cargo build   
 > > may require  
