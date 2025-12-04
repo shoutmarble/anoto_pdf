@@ -175,7 +175,7 @@ impl CRT {
 // Main Anoto codec implementation
 pub struct AnotoCodec {
     mns: Vec<i8>,
-    mns_length: usize,
+    pub mns_length: usize,
     mns_cyclic: Vec<i8>,
     mns_order: usize,
     _sns_order: usize,
@@ -352,12 +352,44 @@ impl AnotoCodec {
         Ok((section_x, section_y))
     }
 
-    fn integrate_roll(&self, pos: i32, first_roll: i32) -> i32 {
+    pub fn integrate_roll(&self, pos: i32, first_roll: i32) -> i32 {
         let mut r = 0i64;
         for i in 0..pos {
             r += self.delta(i) as i64;
         }
         ((first_roll as i64 + r) % self.mns_length as i64) as i32
+    }
+
+    pub fn encode_patch(&self, pos: (i32, i32), size: (usize, usize), section_start_rolls: (i32, i32)) -> Array3<i8> {
+        let (x_start, y_start) = pos;
+        let (w, h) = size;
+        let mut m = Array3::<i8>::zeros((h, w, 2));
+
+        // x-direction
+        for c in 0..w {
+            let abs_x = x_start + c as i32;
+            let roll = self.integrate_roll(abs_x, section_start_rolls.0);
+            let rolled_mns = rotate_vec(&self.mns, -(roll as isize));
+            
+            for r in 0..h {
+                let abs_y = y_start + r as i32;
+                m[[r, c, 0]] = rolled_mns[(abs_y as usize) % self.mns_length];
+            }
+        }
+
+        // y-direction
+        for r in 0..h {
+            let abs_y = y_start + r as i32;
+            let roll = self.integrate_roll(abs_y, section_start_rolls.1);
+            let rolled_mns = rotate_vec(&self.mns, -(roll as isize));
+            
+            for c in 0..w {
+                let abs_x = x_start + c as i32;
+                m[[r, c, 1]] = rolled_mns[(abs_x as usize) % self.mns_length];
+            }
+        }
+        
+        m
     }
 }
 
