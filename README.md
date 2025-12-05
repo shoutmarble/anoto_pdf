@@ -9,8 +9,7 @@
 
 > Test the Anoto 6x6 Rest Service
 > > ```
-> > curl -H "Content-Type: 
-> > application/json" -d '
+> > curl -H "Content-Type: application/json" -d '
 > > [["↓","←","←","→","←","→"], 
 > > ["→","↑","←","→","↑","↑"],
 > > ["→","→","↑","↑","←","↓"],
